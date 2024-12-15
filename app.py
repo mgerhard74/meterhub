@@ -1,4 +1,6 @@
 import logging
+import requests
+import json
 
 import config
 # Devices
@@ -13,11 +15,11 @@ class App:
     def __init__(self):
         self.log = logging.getLogger('app')
 
-        self.publish_config = (('car_pv_ready', 10),  # only keys in this list can be published
-                               ('car_plug', 10),  # key and timeout in seconds
-                               ('car_info', 10),
-                               ('bat_info', 10),
-                               ('bat_soc', 10))
+        self.publish_config = (('car_pv_ready', 999),  # only keys in this list can be published
+                               ('car_plug', 999),  # key and timeout in seconds
+                               ('car_info', 999),
+                               ('bat_info', 999),
+                               ('bat_soc', 999))
 
 
         self.command = {'goe': None}  # enable commands with a key
@@ -35,40 +37,65 @@ class App:
     def work(self, data, minute=False):
 
         # handle received commands (/command/<target>?...)
-        if self.command['goe']:
-            self.log.info("goe wallbox command: {}".format(self.command['goe']))
-            if not self.goe.set(self.command['goe']):
-                self.log.info("retry goe wallbox command: {}".format(self.command))
-                self.goe.set(self.command['goe'])  # second try
-            self.command['goe'] = None
+        #if self.command['goe']:
+        #    self.log.info("goe wallbox command: {}".format(self.command['goe']))
+        #    if not self.goe.set(self.command['goe']):
+        #        self.log.info("retry goe wallbox command: {}".format(self.command))
+        #        self.goe.set(self.command['goe'])  # second try
+        #    self.command['goe'] = None
+        self.command['goe'] = None
 
         # read devices
-        self.sdm120.read(['p', 'e_import', 'e_export'])  # flat
-        self.sdm630.read(['p', 'e_total'])  # home  (legacy e_total, import is better)
-        self.sdm72.read(['p', 'e_total'])  # flat  (legacy e_total, import is better)
-        self.sml.read()  # read IR coupler
-        self.goe.read()  # read Wallbox
-        if minute:  # water read only once a minute
-            self.water.read()
+        #self.sdm120.read(['p', 'e_import', 'e_export'])  # flat
+        #self.sdm630.read(['p', 'e_total'])  # home  (legacy e_total, import is better)
+        #self.sdm72.read(['p', 'e_total'])  # flat  (legacy e_total, import is better)
+        #self.sml.read()  # read IR coupler
+        #self.goe.read()  # read Wallbox
+        #if minute:  # water read only once a minute
+        #    self.water.read()
 
         # Grid meter
         data['grid_imp_eto'] = self.sml.get('e_import')  # MT175
         data['grid_exp_eto'] = self.sml.get('e_export')  # MT175
         data['grid_p'] = self.sml.get('p')
+        # AMIS READER
+        try:
+            self.api_response = requests.get('http://10.0.0.152/rest', allow_redirects=False, timeout=1.0)
+            self.amis = self.api_response.json()
+            if self.amis['saldo'] == 0:
+                self.amis['saldo'] = 0.1
+            data['grid_imp_eto'] = self.amis['saldo']
+            data['grid_exp_eto'] = self.amis['saldo']
+            data['grid_p'] = self.amis['saldo']
+            data['home_p'] = self.amis['saldo']
+            data['home_all_p'] = self.amis['saldo']
+
+        except:
+            data['grid_p'] = 0.1
+            data['grid_imp_eto'] = 0.1
+            data['grid_exp_eto'] = 0.1
+            data['home_p'] = 0.1
+            data['home_all_p'] = 0.1
 
         # PV
         data['pv1_eto'] = self.pv.get(('e_total', 0))  # Fronius Symo 7 (Süden)
-        data['pv2_eto'] = self.pv.get(('e_total', 1))  # Fronius Symo 6 (Norden)
+        data['pv2_eto'] = 0               # self.pv.get(('e_total', 1))  # Fronius Symo 6 (Norden)
         data['pv1_e_day'] = self.pv.get(('e_day', 0))  # >~21MWh eto has a lower resolution
-        data['pv2_e_day'] = self.pv.get(('e_day', 1))
+        data['pv2_e_day'] = 0             # self.pv.get(('e_day', 1))
         data['pv1_p'] = self.pv.get(('p', 0))
-        data['pv2_p'] = self.pv.get(('p', 1))
-        data['pv_p'] = self.pv.get(('p', 0), default=0) + self.pv.get(('p', 1), default=0)
+        data['pv2_p'] = 0                 # self.pv.get(('p', 1))
+        data['pv_p'] = self.pv.get(('p', 0), default=0)                # + self.pv.get(('p', 1), default=0)
 
         # Home
-        data['home_all_eto'] = self.sdm630.get('e_total')  # SDM630, Haus Gesamtverbrauch
-        data['home_all_p'] = self.sdm630.get('p')
-        data['home_p'] = self.sdm630.get('p', default=0) - self.goe.get('p', default=0)
+        #data['home_all_eto'] = self.sdm630.get('e_total')  # SDM630, Haus Gesamtverbrauch
+        #data['home_all_p'] = self.sdm630.get('p')
+        #data['home_p'] = self.sdm630.get('p', default=0) - self.goe.get('p', default=0)
+        #try:
+        #    data['home_p'] = self.amis['saldo']
+        #    data['home_all_p'] = self.amis['saldo']
+        #except:
+        #    data['home_p'] = 1
+        #    data['home_all_p'] = 1
 
         # Flat
         data['flat_eto'] = self.sdm72.get('e_total')  # SDM72, Einliegerwohnung
@@ -77,7 +104,8 @@ class App:
         # Battery
         data['bat_imp_eto'] = self.sdm120.get('e_import')  # HomeBattery, Ladung / SDM120
         data['bat_exp_eto'] = self.sdm120.get('e_export')  # HomeBattery, Einspeisung / SDM120
-        data['bat_p'] = self.sdm120.get('p')
+        #data['bat_p'] = self.sdm120.get('p')
+        data['bat_p'] = 0
 
         # Wallbox
         data['car_eto'] = self.goe.get('eto')
