@@ -92,7 +92,7 @@ if __name__ == "__main__":
     )
     logging.getLogger("urllib3.connectionpool").setLevel(logging.INFO)
 
-    api = JsonRequest("http://192.168.0.10:8888/api/data", timeout=1, lifetime=10)
+    api = JsonRequest("http://10.0.0.158:8888/api/data", timeout=1, lifetime=10)
 
     while True:
         data = api.read()

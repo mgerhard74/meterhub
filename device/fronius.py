@@ -55,7 +55,7 @@ class Symo:
             self.log.debug("read failed {:.3f}s error: {}".format(time.perf_counter() - t0, e))
             if self.lifetime:
                 if self.lifetime_timeout and time.perf_counter() > self.lifetime_timeout:
-                    self.log.error("data lifetime expired")
+                    self.log.warning("data lifetime expired, inverter not reachable")
                     self.lifetime_timeout = None  # disable timeout, restart with next valid receive
                     self.data = None  # clear data
             else:
@@ -108,7 +108,7 @@ if __name__ == "__main__":
     # logging.getLogger("urllib3.connectionpool").setLevel(logging.INFO)
     logging.getLogger("symo").setLevel(logging.DEBUG)
 
-    pv = Symo('192.168.0.20', timeout=5, lifetime=10)
+    pv = Symo('10.0.0.141', timeout=5, lifetime=10)
 
     # 1. manual read
 

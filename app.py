@@ -1,6 +1,7 @@
 import logging
 import requests
 import json
+import time
 
 import config
 # Devices
@@ -34,6 +35,11 @@ class App:
 
         self.pv.start_tread(thread_sleep=0.5)  # read fronius in extra thread
 
+        self.amis = None  # last valid AMIS reader data
+        self.amis_lifetime = 10  # seconds AMIS data stays valid after read error
+        self.amis_timeout = 0  # perf_counter until AMIS data is valid
+        self.amis_online = True
+
     def work(self, data, minute=False):
 
         # handle received commands (/command/<target>?...)
@@ -58,31 +64,36 @@ class App:
         data['grid_imp_eto'] = self.sml.get('e_import')  # MT175
         data['grid_exp_eto'] = self.sml.get('e_export')  # MT175
         data['grid_p'] = self.sml.get('p')
-        # AMIS READER
+        # AMIS READER, on failure keep last data for amis_lifetime, then None (ESS goes idle)
         try:
             self.api_response = requests.get('http://10.0.0.152/rest', allow_redirects=False, timeout=1.0)
-            self.amis = self.api_response.json()
-            if self.amis['saldo'] == 0:
-                self.amis['saldo'] = 0.1
-            data['grid_imp_eto'] = self.amis['saldo']
-            data['grid_exp_eto'] = self.amis['saldo']
-            data['grid_p'] = self.amis['saldo']
-            data['home_p'] = self.amis['saldo']
-            data['home_all_p'] = self.amis['saldo']
-
-        except:
-            data['grid_p'] = 0.1
-            data['grid_imp_eto'] = 0.1
-            data['grid_exp_eto'] = 0.1
-            data['home_p'] = 0.1
-            data['home_all_p'] = 0.1
+            amis = self.api_response.json()
+            float(amis['saldo'])  # raises if invalid
+            self.amis = amis
+            self.amis_timeout = time.perf_counter() + self.amis_lifetime
+            if not self.amis_online:
+                self.amis_online = True
+                self.log.info("amis reader reachable again")
+        except Exception as e:
+            if self.amis_online:
+                self.amis_online = False
+                self.log.warning("amis reader not reachable: {}".format(e))
+        if time.perf_counter() < self.amis_timeout:
+            saldo = self.amis['saldo']
+        else:
+            saldo = None
+        data['grid_imp_eto'] = saldo
+        data['grid_exp_eto'] = saldo
+        data['grid_p'] = saldo
+        data['home_p'] = saldo
+        data['home_all_p'] = saldo
 
         # PV
         data['pv1_eto'] = self.pv.get(('e_total', 0))  # Fronius Symo 7 (Süden)
         data['pv2_eto'] = 0               # self.pv.get(('e_total', 1))  # Fronius Symo 6 (Norden)
         data['pv1_e_day'] = self.pv.get(('e_day', 0))  # >~21MWh eto has a lower resolution
         data['pv2_e_day'] = 0             # self.pv.get(('e_day', 1))
-        data['pv1_p'] = self.pv.get(('p', 0))
+        data['pv1_p'] = self.pv.get(('p', 0), default=0)  # 0 W wenn Fronius nicht erreichbar
         data['pv2_p'] = 0                 # self.pv.get(('p', 1))
         data['pv_p'] = self.pv.get(('p', 0), default=0)                # + self.pv.get(('p', 1), default=0)
 

@@ -57,7 +57,7 @@ class MeterHub:
         logging.getLogger('waitress.queue').setLevel(logging.ERROR)  # hide waitress info log
         # start webserver thread
         threading.Thread(target=self.web.run, daemon=True,
-                         kwargs=dict(host='0.0.0.0', port=config.webserver_port, server='waitress')).start()
+                         kwargs=dict(host='10.0.0.158', port=config.webserver_port, server='waitress')).start()
 
     def start(self):
         self.log.info('start {} {}'.format(self.name, self.version))

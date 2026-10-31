@@ -13,6 +13,7 @@ class Backup:
     Cyclic saving of the data set and saving as CSV file. Saving is done locally and optionally via FTP upload.
 
     Options:
+    enable = True                       # False disables CSV backup (file and ftp)
     data_minute_interval = 5            # store interval in minutes (CSV-Row)
     save_hour_interval = 6              # file save interval in hours (file and ftp save)
     config = ['time', 'home_eto', ...]  # list with keys saved from data
@@ -21,6 +22,7 @@ class Backup:
     """
 
     def __init__(self):
+        self.enable = True  # False disables CSV backup (file and ftp)
         self.path = 'backup'  # default path
         self.data_minute_interval = 5  # minutes
         self.save_hour_interval = 6  # hours
@@ -38,7 +40,7 @@ class Backup:
         """
         Process dataset (dictionary)
         """
-        if not isinstance(self.config, (list, type)):  # abort without config
+        if not self.enable or not isinstance(self.config, (list, type)):  # abort if disabled or without config
             return
 
         try:
@@ -77,6 +79,8 @@ class Backup:
             self.log.error("push exception: {}".format(e))
 
     def save(self):
+        if not self.enable or not self.csv_buffer:
+            return
         self.save_to_file()
         if self.ftp_config:
             self.save_to_ftp()
