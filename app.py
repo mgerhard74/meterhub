@@ -1,5 +1,4 @@
 import logging
-import requests
 import json
 import time
 
@@ -10,6 +9,7 @@ from device.fronius import Symo  # PV Inverter
 from device.goe_api_v2 import GoeApiV2  # GO-E Wallbox
 from device.json_request import JsonRequest  # HTTP API for Battery system
 from device.sml import Sml  # IP Coupler interface to grid power meter
+from device.rest_meter import RestMeter, parse_amis, parse_shelly_pro3em  # grid meter via REST (AMIS, Shelly)
 
 
 class App:
@@ -35,10 +35,22 @@ class App:
 
         self.pv.start_tread(thread_sleep=0.5)  # read fronius in extra thread
 
-        self.amis = None  # last valid AMIS reader data
-        self.amis_lifetime = 10  # seconds AMIS data stays valid after read error
-        self.amis_timeout = 0  # perf_counter until AMIS data is valid
-        self.amis_online = True
+        # grid meter: priority list from config, each meter polled in its own thread, data valid 10 s after error
+        self.grid_meter = []
+        for name in getattr(config, 'grid_meter', ['amis']):
+            if name == 'amis':
+                url = 'http://{}/rest'.format(getattr(config, 'amis_address', '10.0.0.152'))
+                parse = parse_amis
+            elif name == 'shelly':
+                url = 'http://{}/rpc/Shelly.GetStatus'.format(config.shelly_3em_address)
+                invert = getattr(config, 'shelly_3em_invert', False)
+                parse = lambda d, inv=invert: parse_shelly_pro3em(d, inv)
+            else:
+                self.log.error("unknown grid_meter '{}' in config.py".format(name))
+                continue
+            self.log.info("grid meter {}: {}".format(name, url))
+            self.grid_meter.append(RestMeter(name, url, parse, lifetime=10))
+        self.grid_source = None
 
     def work(self, data, minute=False):
 
@@ -64,26 +76,21 @@ class App:
         data['grid_imp_eto'] = self.sml.get('e_import')  # MT175
         data['grid_exp_eto'] = self.sml.get('e_export')  # MT175
         data['grid_p'] = self.sml.get('p')
-        # AMIS READER, on failure keep last data for amis_lifetime, then None (ESS goes idle)
-        try:
-            self.api_response = requests.get('http://10.0.0.152/rest', allow_redirects=False, timeout=1.0)
-            amis = self.api_response.json()
-            float(amis['saldo'])  # raises if invalid
-            self.amis = amis
-            self.amis_timeout = time.perf_counter() + self.amis_lifetime
-            if not self.amis_online:
-                self.amis_online = True
-                self.log.info("amis reader reachable again")
-        except Exception as e:
-            if self.amis_online:
-                self.amis_online = False
-                self.log.warning("amis reader not reachable: {}".format(e))
-        if time.perf_counter() < self.amis_timeout:
-            saldo = self.amis['saldo']
-        else:
-            saldo = None
-        data['grid_imp_eto'] = saldo
-        data['grid_exp_eto'] = saldo
+        # Grid meter (AMIS / Shelly Pro 3EM): first meter with valid data, all invalid -> None (ESS goes idle)
+        grid = None
+        source = None
+        for m in self.grid_meter:
+            d = m.get()
+            data['grid_p_' + m.name] = None if d is None else d['p']  # each meter, for comparison
+            if grid is None and d is not None:
+                grid, source = d, m.name
+        if source != self.grid_source:
+            self.log.warning("grid meter source: {} -> {}".format(self.grid_source, source))
+            self.grid_source = source
+        saldo = None if grid is None else grid['p']
+        data['grid_source'] = source
+        data['grid_imp_eto'] = None if grid is None else grid['e_import']
+        data['grid_exp_eto'] = None if grid is None else grid['e_export']
         data['grid_p'] = saldo
         data['home_p'] = saldo
         data['home_all_p'] = saldo
