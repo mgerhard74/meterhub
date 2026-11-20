@@ -46,6 +46,9 @@ The application is written in Python and usually runs on a Raspberry Pi. The spe
     * ITRON 3.HZ
     * EMH eHZ
 
+* Electricity meter (REST; MQTT)
+    * AMIS IR Reader for NetzOÖ Smartmeters (https://www.mitterbaur.at/amis-leser.html)
+
 * Wallbox 
   * Go-e HomeFix
     
