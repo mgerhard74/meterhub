@@ -11,6 +11,11 @@ from device.json_request import JsonRequest  # HTTP API for Battery system
 from device.sml import Sml  # IP Coupler interface to grid power meter
 from device.rest_meter import RestMeter, parse_amis, parse_shelly_pro3em  # grid meter via REST (AMIS, Shelly)
 
+try:
+    import config_secret  # mqtt_user / mqtt_password, not in git
+except ImportError:
+    config_secret = None
+
 
 class App:
     def __init__(self):
@@ -45,6 +50,17 @@ class App:
                 url = 'http://{}/rpc/Shelly.GetStatus'.format(config.shelly_3em_address)
                 invert = getattr(config, 'shelly_3em_invert', False)
                 parse = lambda d, inv=invert: parse_shelly_pro3em(d, inv)
+            elif name == 'mqtt':
+                from device.mqtt_meter import MqttMeter  # paho-mqtt only needed with mqtt
+                host = getattr(config, 'mqtt_address', '')
+                port = getattr(config, 'mqtt_port', 1883)
+                topic = getattr(config, 'mqtt_topic', '')
+                self.log.info("grid meter mqtt: {}:{} topic {}".format(host, port, topic))
+                self.grid_meter.append(MqttMeter('mqtt', host, topic, parse_amis, port=port,
+                                                 user=getattr(config_secret, 'mqtt_user', None),
+                                                 password=getattr(config_secret, 'mqtt_password', None),
+                                                 lifetime=10))
+                continue
             else:
                 self.log.error("unknown grid_meter '{}' in config.py".format(name))
                 continue
