@@ -106,7 +106,13 @@ class MeterHub:
 
         if self.data is None:
             response.status = 404
-        return self.data
+            return self.data
+        data = dict(self.data)
+        try:
+            self.app.update_grid(data, log_change=False)  # newest grid meter value, not up to 1 s old main loop data
+        except Exception as e:
+            self.log.warning("grid update at request failed: {}".format(e))
+        return data
 
     def web_command(self, target=None):
         """

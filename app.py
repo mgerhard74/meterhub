@@ -65,8 +65,32 @@ class App:
                 self.log.error("unknown grid_meter '{}' in config.py".format(name))
                 continue
             self.log.info("grid meter {}: {}".format(name, url))
-            self.grid_meter.append(RestMeter(name, url, parse, lifetime=10))
+            self.grid_meter.append(RestMeter(name, url, parse, lifetime=10,
+                                             interval=getattr(config, 'grid_meter_interval', 0.25)))
         self.grid_source = None
+
+    def update_grid(self, data, log_change=True):
+        """
+        Grid meter (AMIS / Shelly Pro 3EM / MQTT): first meter with valid data, all invalid -> None (ESS goes idle).
+        Called by the 1 s main loop and at each web request (ESS always gets the newest meter value).
+        """
+        grid = None
+        source = None
+        for m in self.grid_meter:
+            d = m.get()
+            data['grid_p_' + m.name] = None if d is None else d['p']  # each meter, for comparison
+            if grid is None and d is not None:
+                grid, source = d, m.name
+        if log_change and source != self.grid_source:
+            self.log.warning("grid meter source: {} -> {}".format(self.grid_source, source))
+            self.grid_source = source
+        saldo = None if grid is None else grid['p']
+        data['grid_source'] = source
+        data['grid_imp_eto'] = None if grid is None else grid['e_import']
+        data['grid_exp_eto'] = None if grid is None else grid['e_export']
+        data['grid_p'] = saldo
+        data['home_p'] = saldo
+        data['home_all_p'] = saldo
 
     def work(self, data, minute=False):
 
@@ -92,24 +116,7 @@ class App:
         data['grid_imp_eto'] = self.sml.get('e_import')  # MT175
         data['grid_exp_eto'] = self.sml.get('e_export')  # MT175
         data['grid_p'] = self.sml.get('p')
-        # Grid meter (AMIS / Shelly Pro 3EM): first meter with valid data, all invalid -> None (ESS goes idle)
-        grid = None
-        source = None
-        for m in self.grid_meter:
-            d = m.get()
-            data['grid_p_' + m.name] = None if d is None else d['p']  # each meter, for comparison
-            if grid is None and d is not None:
-                grid, source = d, m.name
-        if source != self.grid_source:
-            self.log.warning("grid meter source: {} -> {}".format(self.grid_source, source))
-            self.grid_source = source
-        saldo = None if grid is None else grid['p']
-        data['grid_source'] = source
-        data['grid_imp_eto'] = None if grid is None else grid['e_import']
-        data['grid_exp_eto'] = None if grid is None else grid['e_export']
-        data['grid_p'] = saldo
-        data['home_p'] = saldo
-        data['home_all_p'] = saldo
+        self.update_grid(data)
 
         # PV
         data['pv1_eto'] = self.pv.get(('e_total', 0))  # Fronius Symo 7 (Süden)

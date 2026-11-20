@@ -17,6 +17,10 @@ eastron_sdm_port = "/dev/serial/by-path/platform-3f980000.usb-usb-0:1.2:1.0-port
 # Examples: ['amis']  /  ['shelly']  /  ['amis', 'shelly'] (Shelly as backup)  /  ['mqtt', 'amis']
 grid_meter = ['amis']
 
+# [s] poll interval REST meters (AMIS / Shelly). The meter sends a new value every second,
+# fast polling gives ESS the newest value (max 0.25 s old instead of up to 1 s)
+grid_meter_interval = 0.25
+
 # AMIS reader IP Address
 amis_address = '10.0.0.152'
 
